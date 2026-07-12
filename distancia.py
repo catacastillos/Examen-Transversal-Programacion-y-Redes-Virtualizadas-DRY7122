@@ -1,138 +1,114 @@
-
 import requests
 from geopy.geocoders import Nominatim
 
-def obtener_coordenadas(ciudad, pais):
-    """Busca una ciudad usando OpenStreetMap para obtener sus coordenadas."""
-    geolocator = Nominatim(user_agent="examen_dry7122_graphhopper")
-    try:
-        query = f"{ciudad}, {pais}"
-        location = geolocator.geocode(query, timeout=10)
-        return location
-    except Exception:
-        return None
+API_KEY = "c035f28f-aeda-4891-8304-2eb8fb53931e"
 
-def consultar_graphhopper(lat_origen, lon_origen, lat_destino, lon_destino, medio_transporte):
-    """
-    Consulta la API pública de enrutamiento de GraphHopper 
-    para obtener distancia exacta de ruta y tiempo de viaje.
-    """
-   
-    perfiles = {
-        "1": "car",       
-        "2": "scooter",   
-        "3": "foot"       
-    }
-    
-    perfil = perfiles.get(medio_transporte, "car")
-    
-    url = "https://graphhopper.com/api/1/route"
-    
-    params = {
-        "point": [f"{lat_origen},{lon_origen}", f"{lat_destino},{lon_destino}"],
-        "vehicle": perfil,
-        "locale": "es",
-        "instructions": "false",
-        "key": "b6a71e81-cf5c-42b9-9189-948f95c47012" 
-    }
-    
-    try:
-        response = requests.get(url, params=params, timeout=12)
-        if response.status_code == 200:
-            data = response.json()
-        
-            distancia_metros = data["paths"][0]["distance"]
-            tiempo_milisegundos = data["paths"][0]["time"]
-            
-            distancia_km = distancia_metros / 1000.0
-            horas_totales = tiempo_milisegundos / 1000.0 / 3600.0
-            
-            return distancia_km, horas_totales
-        else:
-            
-            return None, None
-    except Exception:
-        return None, None
+geolocator = Nominatim(user_agent="dry7122")
 
-def formatear_tiempo(horas_totales):
-    """Convierte horas decimales a un formato amigable de días, horas y minutos."""
-    dias = int(horas_totales // 24)
-    horas = int(horas_totales % 24)
-    minutos = int((horas_totales * 60) % 60)
-    
-    duracion_str = ""
-    if dias > 0:
-        duracion_str += f"{dias} día(s), "
-    duracion_str += f"{horas} hora(s) y {minutos} minuto(s)"
-    return duracion_str
-
-print("=========================================================")
-print("  Sistema de Rutas e Itinerarios (GraphHopper & OSM)     ")
-print("=========================================================\n")
+transportes = {
+    "1": "car",
+    "2": "bike",
+    "3": "foot"
+}
 
 while True:
-    print("--- Nueva Consulta (Presione 's' para salir) ---")
-    
-    ciudad_origen = input("Ingrese la Ciudad de Origen (Chile): ").strip()
-    if ciudad_origen.lower() == 's':
-        break
-        
-    ciudad_destino = input("Ingrese la Ciudad de Destino (Argentina): ").strip()
-    if ciudad_destino.lower() == 's':
+
+    origen = input("\nCiudad de Origen (Chile) o s para salir: ")
+
+    if origen.lower() == "s":
+        print("Programa finalizado.")
         break
 
-    print("\nSeleccione el medio de transporte:")
-    print("1) Auto / Autobús")
-    print("2) Avión (Ruta Directa)")
-    print("3) Caminando")
-    medio = input("Opción (1-3): ").strip()
-    
-    if medio.lower() == 's':
+    destino = input("Ciudad de Destino (Argentina): ")
+
+    if destino.lower() == "s":
+        print("Programa finalizado.")
         break
-    if medio not in ["1", "2", "3"]:
-        print("Opción no válida. Intente de nuevo.\n")
+
+    print("\nTipo de transporte")
+    print("1. Auto")
+    print("2. Bicicleta")
+    print("3. Caminando")
+
+    opcion = input("Seleccione una opción: ")
+
+    if opcion not in transportes:
+        print("Opción inválida\n")
         continue
 
-    print("\n[Buscando ciudades en OpenStreetMap y trazando ruta en GraphHopper...]")
-    
-    origen_geo = obtener_coordenadas(ciudad_origen, "Chile")
-    destino_geo = obtener_coordenadas(ciudad_destino, "Argentina")
+    origen_geo = geolocator.geocode(origen + ", Chile")
+    destino_geo = geolocator.geocode(destino + ", Argentina")
 
-    if not origen_geo:
-        print(f"Error: No se encontró '{ciudad_origen}' en Chile.\n")
-        continue
-    if not destino_geo:
-        print(f"Error: No se encontró '{ciudad_destino}' en Argentina.\n")
+    if origen_geo is None or destino_geo is None:
+        print("No se encontró alguna de las ciudades.\n")
         continue
 
-    dist_km, hrs = consultar_graphhopper(
-        origen_geo.latitude, origen_geo.longitude,
-        destino_geo.latitude, destino_geo.longitude,
-        medio
+    parametros = [
+        ("point", f"{origen_geo.latitude},{origen_geo.longitude}"),
+        ("point", f"{destino_geo.latitude},{destino_geo.longitude}"),
+        ("profile", transportes[opcion]),
+        ("locale", "es"),
+        ("instructions", "true"),
+        ("points_encoded", "false"),
+        ("key", API_KEY)
+    ]
+
+    respuesta = requests.get(
+        "https://graphhopper.com/api/1/route",
+        params=parametros
     )
 
-    if dist_km is None:
-        from geopy.distance import geodesic
-        dist_km = geodesic((origen_geo.latitude, origen_geo.longitude), (destino_geo.latitude, destino_geo.longitude)).kilometers
-        v_promedio = {"1": 90, "2": 800, "3": 5}[medio]
-        hrs = dist_km / v_promedio
+    if respuesta.status_code != 200:
+        print("Error:", respuesta.text)
+        continue
 
-    dist_mi = dist_km * 0.621371
-    duracion_texto = formatear_tiempo(hrs)
-    transporte_nombre = {"1": "Auto/Autobús", "2": "Avión", "3": "Caminando"}[medio]
+    datos = respuesta.json()
 
-    print("\n================ RESULTADOS DEL VIAJE ================")
-    print(f"Origen: {origen_geo.address}")s
-    print(f"Destino: {destino_geo.address}")
-    print(f"Distancia en Kilómetros : {dist_km:.2f} km")
-    print(f"Distancia en Millas      : {dist_mi:.2f} mi")
-    print(f"Duración de viaje        : {duracion_texto}")
-    print("------------------------------------------------------")
-    print("NARRATIVA DEL VIAJE:")
-    print(f"Su viaje se iniciará en {ciudad_origen} (Chile). Utilizando el motor de mapas ")
-    print(f"GraphHopper, se calculó una trayectoria óptima hacia {ciudad_destino}, Argentina.")
-    print(f"Viajando en {transporte_nombre}, recorrerá un total de {dist_km:.2f} km ({dist_mi:.2f} millas).")
-    print(f"El cruce fronterizo por la cordillera y el viaje tomarán cerca de {duracion_texto}.")
-    print("======================================================\n")
+    if "paths" not in datos:
+        print("No fue posible calcular la ruta.\n")
+        continue
 
-print("\n¡Gracias!")
+    ruta = datos["paths"][0]
+
+    distancia = ruta["distance"] / 1000
+    millas = distancia * 0.621371
+
+    tiempo = int(ruta["time"] / 1000)
+
+    horas = tiempo // 3600
+    minutos = (tiempo % 3600) // 60
+    segundos = tiempo % 60
+
+    print("\n======================================")
+    print(f"Direcciones desde {origen} hasta {destino}")
+    print(f"Duración: {horas:02d}:{minutos:02d}:{segundos:02d}")
+    print(f"Kilómetros: {distancia:.2f}")
+    print(f"Millas: {millas:.2f}")
+    print("======================================")
+
+    print("\nNarrativa del viaje:\n")
+
+    instrucciones = ruta.get("instructions", [])
+
+    if instrucciones:
+
+        for paso in instrucciones:
+
+            texto = paso["text"]
+
+            texto = texto.replace("toward", "hacia")
+            texto = texto.replace("and take", "y toma")
+            texto = texto.replace("and drive toward", "y conduce hacia")
+            texto = texto.replace("Continue", "Continúa")
+            texto = texto.replace("Turn", "Gira")
+            texto = texto.replace("Keep", "Mantente")
+            texto = texto.replace("Finish!", "¡Fin del recorrido!")
+
+            km = paso["distance"] / 1000
+
+            print(f"- {texto} ({km:.2f} km)")
+
+    else:
+        print("No hay instrucciones disponibles para esta ruta.")
+
+    print("======================================")
